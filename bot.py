@@ -992,7 +992,6 @@ async def temp_role_checker():
 # ==================== أوامر إحضار اللوحات المنفصلة ====================
 
 @bot.command()
-@commands.has_permissions(administrator=True)
 async def setup_user(ctx):
     await ctx.message.delete()
     embed = discord.Embed(
@@ -1009,10 +1008,9 @@ async def setup_user(ctx):
         color=0x3498DB
     )
     await ctx.send(embed=embed, view=UserPanelView())
-    await log_event(ctx.guild, "نشر لوحة", f"قام الإداري {ctx.author.mention} بنشر **لوحة الأعضاء** في {ctx.channel.mention}.")
+    await log_event(ctx.guild, "نشر لوحة", f"قام {ctx.author.mention} بنشر **لوحة الأعضاء** في {ctx.channel.mention}.")
 
 @bot.command()
-@commands.has_permissions(administrator=True)
 async def setup_store(ctx):
     await ctx.message.delete()
     embed = discord.Embed(
@@ -1028,10 +1026,9 @@ async def setup_store(ctx):
         color=0xF1C40F
     )
     await ctx.send(embed=embed, view=StorePanelView())
-    await log_event(ctx.guild, "نشر لوحة", f"قام الإداري {ctx.author.mention} بنشر **لوحة المتجر** في {ctx.channel.mention}.")
+    await log_event(ctx.guild, "نشر لوحة", f"قام {ctx.author.mention} بنشر **لوحة المتجر** في {ctx.channel.mention}.")
 
 @bot.command()
-@commands.has_permissions(administrator=True)
 async def setup_admin(ctx):
     await ctx.message.delete()
     embed = discord.Embed(
@@ -1049,7 +1046,7 @@ async def setup_admin(ctx):
         color=0xE74C3C
     )
     await ctx.send(embed=embed, view=AdminPanelView())
-    await log_event(ctx.guild, "نشر لوحة", f"قام الإداري {ctx.author.mention} بنشر **لوحة الإدارة** في {ctx.channel.mention}.")
+    await log_event(ctx.guild, "نشر لوحة", f"قام {ctx.author.mention} بنشر **لوحة الإدارة** في {ctx.channel.mention}.")
 
 # تشغيل البوت عبر متغير البيئة الآمن
 bot.run(os.getenv("DISCORD_TOKEN"))
