@@ -145,7 +145,6 @@ class BuyModal(discord.ui.Modal, title="شراء منتج من المتجر"):
       return
 
     price = product["price"]
-    # منطق الخصم والخصم التلقائي يمكن إضافته هنا...
 
     if user_data["coins"] < price:
       await interaction.response.send_message(
@@ -165,7 +164,6 @@ class BuyModal(discord.ui.Modal, title="شراء منتج من المتجر"):
           ephemeral=True,
       )
     else:
-      # فتح تيكت لفريق المتجر
       overwrites = {
           interaction.guild.default_role: discord.PermissionOverwrite(
               read_messages=False
@@ -310,13 +308,11 @@ class UserView(discord.ui.View):
   async def lucky_wheel(
       self, interaction: discord.Interaction, button: discord.ui.Button
   ):
-    # محاكاة لف عجلة الحظ
     user_id = str(interaction.user.id)
     user_data = database["users"].setdefault(
         user_id, {"coins": 1000, "discount_codes": []}
     )
 
-    # هنا يتم تطبيق نسب الحظ المذكورة بدقة...
     reward_type = random.choices(
         ["coins", "discount", "role", "spin"], weights=[60, 30, 5, 5]
     )[0]
@@ -346,7 +342,6 @@ class UserView(discord.ui.View):
         f"🎡 نتيجة عجلة الحظ: {result_text}", ephemeral=True
     )
 
-    # لوج عجلة الحظ
     wheel_log_ch = interaction.guild.get_channel(WHEEL_LOG_CHANNEL)
     if wheel_log_ch:
       await wheel_log_ch.send(
@@ -378,7 +373,7 @@ class TransferModal(discord.ui.Modal, title="تحويل عملات لصديق"):
       )
       return
 
-    fee = int(amt * 0.1)  # خصم رسوم 10%
+    fee = int(amt * 0.1)
     net_amount = amt - fee
 
     sender_id = str(interaction.user.id)
@@ -398,6 +393,177 @@ class TransferModal(discord.ui.Modal, title="تحويل عملات لصديق"):
     await interaction.response.send_message(
         f"✅ تم تحويل {net_amount} BX Coins بنجاح! (تم خصم {fee} عملة كرسوم"
         " تحويل).",
+        ephemeral=True,
+    )
+
+
+# ==================== لوحة الإدارة (Admin Panel) ====================
+class AdminView(discord.ui.View):
+
+  def __init__(self):
+    super().__init__(timeout=None)
+
+  @discord.ui.button(
+      label="إضافة منتج جديد",
+      style=discord.ButtonStyle.success,
+      emoji="➕",
+      custom_id="admin_add_product",
+  )
+  async def add_product(
+      self, interaction: discord.Interaction, button: discord.ui.Button
+  ):
+    if not interaction.user.guild_permissions.administrator:
+      await interaction.response.send_message(
+          "❌ هذا الزر مخصص للإدارة فقط!", ephemeral=True
+      )
+      return
+    await interaction.response.send_modal(AddProductModal())
+
+  @discord.ui.button(
+      label="تعديل عملات أو ليفل",
+      style=discord.ButtonStyle.primary,
+      emoji="⚙️",
+      custom_id="admin_edit_user",
+  )
+  async def edit_user(
+      self, interaction: discord.Interaction, button: discord.ui.Button
+  ):
+    if not interaction.user.guild_permissions.administrator:
+      await interaction.response.send_message(
+          "❌ هذا الزر مخصص للإدارة فقط!", ephemeral=True
+      )
+      return
+    await interaction.response.send_modal(EditUserModal())
+
+  @discord.ui.button(
+      label="إنشاء كود خصم",
+      style=discord.ButtonStyle.secondary,
+      emoji="🏷️",
+      custom_id="admin_create_discount",
+  )
+  async def create_discount(
+      self, interaction: discord.Interaction, button: discord.ui.Button
+  ):
+    if not interaction.user.guild_permissions.administrator:
+      await interaction.response.send_message(
+          "❌ هذا الزر مخصص للإدارة فقط!", ephemeral=True
+      )
+      return
+    await interaction.response.send_modal(DiscountModal())
+
+
+class AddProductModal(discord.ui.Modal, title="إضافة منتج جديد للمتجر"):
+  prod_name = discord.ui.TextInput(
+      label="اسم المنتج", placeholder="مثال: رول فيسبوك / خدمة تفعيل"
+  )
+  prod_desc = discord.ui.TextInput(
+      label="وصف المنتج",
+      style=discord.TextStyle.paragraph,
+      placeholder="اكتب تفاصيل المنتج...",
+  )
+  prod_price = discord.ui.TextInput(
+      label="السعر (بالعملات)", placeholder="مثال: 500"
+  )
+  is_role = discord.ui.TextInput(
+      label="هل هو رول فوري؟ (نعم / لا)", placeholder="اكتب نعم أو لا", max_length=3
+  )
+  role_id = discord.ui.TextInput(
+      label="آي دي الرول (لو نعم، اكتبه وإلا اتركها)",
+      required=False,
+      placeholder="1541620051...",
+  )
+
+  async def on_submit(self, interaction: discord.Interaction):
+    try:
+      price = int(self.prod_price.value)
+    except ValueError:
+      await interaction.response.send_message(
+          "❌ السعر يجب أن يكون رقماً صحيحاً!", ephemeral=True
+      )
+      return
+
+    prod_code = str(random.randint(100000, 999999))
+    while prod_code in database["products"]:
+      prod_code = str(random.randint(100000, 999999))
+
+    is_r = True if self.is_role.value.strip().lower() in ["نعم", "yes", "y"] else False
+    r_id = int(self.role_id.value) if self.role_id.value.isdigit() else None
+
+    database["products"][prod_code] = {
+        "name": self.prod_name.value,
+        "desc": self.prod_desc.value,
+        "price": price,
+        "is_role": is_r,
+        "role_id": r_id,
+    }
+
+    await interaction.response.send_message(
+        f"✅ تم إضافة المنتج بنجاح!\n📌 **كود المنتج التلقائي:** `{prod_code}`",
+        ephemeral=True,
+    )
+    await send_log(
+        interaction.guild,
+        "إضافة منتج جديد",
+        f"الإداري {interaction.user.mention} أضاف المنتج `{self.prod_name.value}`"
+        f" بكود تلقائي `{prod_code}`.",
+    )
+
+
+class EditUserModal(discord.ui.Modal, title="تعديل رصيد أو ليفل عضو"):
+  user_id = discord.ui.TextInput(
+      label="آي دي العضو (User ID)", placeholder="اكتب الآي دي هنا"
+  )
+  coins_change = discord.ui.TextInput(
+      label="تعديل العملات (+ أو -)",
+      placeholder="مثال: +100 أو -50",
+      required=False,
+  )
+  level_change = discord.ui.TextInput(
+      label="تعديل الليفل (رقم جديد)", placeholder="مثال: 5", required=False
+  )
+
+  async def on_submit(self, interaction: discord.Interaction):
+    u_id = self.user_id.value.strip()
+    u_data = database["users"].setdefault(
+        u_id, {"coins": 1000, "level": 0, "messages": 0, "voice_minutes": 0}
+    )
+
+    changes_text = []
+    if self.coins_change.value:
+      try:
+        val = int(self.coins_change.value)
+        u_data["coins"] += val
+        changes_text.append(f"العملات: {val:+d}")
+      except ValueError:
+        pass
+
+    if self.level_change.value:
+      try:
+        lvl = int(self.level_change.value)
+        u_data["level"] = lvl
+        changes_text.append(f"المستوى أصبح: {lvl}")
+      except ValueError:
+        pass
+
+    await interaction.response.send_message(
+        f"✅ تم تعديل بيانات العضو `{u_id}` بنجاح: {', '.join(changes_text)}",
+        ephemeral=True,
+    )
+
+
+class DiscountModal(discord.ui.Modal, title="إنشاء كود خصم جديد"):
+  disc_code = discord.ui.TextInput(
+      label="كود الخصم", placeholder="مثال: SALE50 أو BREVIX2026"
+  )
+  discount_val = discord.ui.TextInput(
+      label="نسبة أو قيمة الخصم", placeholder="مثال: 20 (يعني 20%)"
+  )
+
+  async def on_submit(self, interaction: discord.Interaction):
+    code = self.disc_code.value.strip()
+    database["admin_codes"][code] = {"discount": self.discount_val.value}
+    await interaction.response.send_message(
+        f"✅ تم إنشاء كود الخصم `{code}` بنسبة خصم `{self.discount_val.value}%` بنجاح!",
         ephemeral=True,
     )
 
@@ -430,6 +596,22 @@ async def send_user_panel(ctx):
       color=discord.Color.blurple(),
   )
   await ctx.send(embed=embed, view=UserView())
+
+
+@bot.command(name="apanel")
+async def send_admin_panel(ctx):
+  if not ctx.author.guild_permissions.administrator:
+    return
+  embed = discord.Embed(
+      title="🛠️ لوحة تحكم الإدارة المركزية",
+      description=(
+          "تحكم كاملاً في منتجات المتجر، تعديل رصيد وليفل الأعضاء، وإنشاء"
+          " تخفيضات السيرفر."
+      ),
+      color=discord.Color.red(),
+  )
+  await ctx.send(embed=embed, view=AdminView())
+
 
 # تشغيل البوت بأمان باستخدام التوكن المخفي
 bot.run(os.getenv("DISCORD_TOKEN"))
