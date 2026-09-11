@@ -715,4 +715,6 @@ async def setup_admin(ctx):
     )
     await ctx.send(embed=embed, view=AdminPanelView())
 
-bot.run(os.getenv("DISCORD_TOKEN"))
+token = os.environ.get("DISCORD_TOKEN")
+bot.run(token)
+
