@@ -182,7 +182,7 @@ async def check_level_up(member, channel=None):
         await log_event(member.guild, "ترقية مستوى تلقائية", f"اللاعب {member.mention} وصل إلى **Level {next_lvl}** بفضل ({reason}) وحصل على `{reward}` كوينز.")
         await check_level_up(member, channel)
 
-# ==================== المهارات والمهام الخلفية ====================
+# ==================== المهام الخلفية ====================
 @tasks.loop(minutes=1)
 async def check_temp_roles():
     now = datetime.datetime.utcnow().isoformat()
@@ -226,6 +226,9 @@ class TransferModal(ui.Modal, title="💸 تحويل BX COINS"):
         except ValueError:
             embed = discord.Embed(title="❌ خطأ", description="يرجى إدخال بيانات وأرقام صحيحة.", color=0xE74C3C)
             return await interaction.response.send_message(embed=embed, ephemeral=True)
+
+        if interaction.user.id == target:
+            return await interaction.response.send_message("❌ لا يمكنك تحويل العملات لنفسك.", ephemeral=True)
 
         _, _, _, sender_coins, _, _ = get_user_data(interaction.user.id)
         if sender_coins < amt:
@@ -416,7 +419,7 @@ class RateProductModal(ui.Modal, title="⭐ تقييم منتجات المتجر
         await interaction.response.send_message("تم إرسال تقييمك بنجاح، شكراً لك!", ephemeral=True)
 
 class BuyModal(ui.Modal, title="💳 شراء منتج من المتجر"):
-    code = ui.TextInput(label="كود المنتج (6 أرقام)", placeholder="مثال: 123456", required=True)
+    code = ui.TextInput(label="كود المنتج", placeholder="مثال: 123456", required=True)
     coupon = ui.TextInput(label="كود الخصم (اختياري)", placeholder="ادخل كود الكوبون إن وجد", required=False)
 
     async def on_submit(self, interaction: discord.Interaction):
@@ -508,7 +511,7 @@ class BuyModal(ui.Modal, title="💳 شراء منتج من المتجر"):
             overwrites = {
                 guild.default_role: discord.PermissionOverwrite(read_messages=False),
                 interaction.user: discord.PermissionOverwrite(read_messages=True, send_messages=True),
-                store_role: discord.PermissionOverwrite(read_messages=True, send_messages=True)
+                store_role: discord.PermissionOverwrite(read_messages=True, send_messages=True) if store_role else guild.default_role.permissions
             }
             ticket_chan = await guild.create_text_channel(name=f"ticket-{interaction.user.name}", overwrites=overwrites)
             
@@ -643,7 +646,6 @@ class AdminPanelView(ui.View):
 
 @bot.event
 async def on_ready():
-    # مزامنة الأوامر مع ديسكورد لتظهر كـ Slash Commands
     try:
         await bot.tree.sync()
         print("✅ تم مزامنة Slash Commands بنجاح.")
@@ -696,31 +698,34 @@ async def on_voice_state_update(member, before, after):
 # ==================== أوامر إرسال اللوحات (Slash Commands) ====================
 
 @bot.tree.command(name="setup_store", description="إرسال لوحة متجر Brevix")
+@commands.has_permissions(administrator=True)
 async def setup_store(interaction: discord.Interaction):
     embed = discord.Embed(
         title="🛍️ │ متجر Brevix الرسمي",
         description="مرحباً بك في المتجر! اضغط على الأزرار أدناه للاستعراض والشراء.",
         color=0xF1C40F
     )
-    await interaction.response.send_message(embed=embed, view=StorePanelView(), ephemeral=True)
+    await interaction.response.send_message(embed=embed, view=StorePanelView())
 
 @bot.tree.command(name="setup_user", description="إرسال لوحة خدمات الأعضاء")
+@commands.has_permissions(administrator=True)
 async def setup_user(interaction: discord.Interaction):
     embed = discord.Embed(
         title="👤 │ لوحة خدمات الأعضاء",
         description="استخدم الأزرار أدناه للتحكم بملفك الشخصي وعجلة الحظ.",
         color=0x3498DB
     )
-    await interaction.response.send_message(embed=embed, view=UserPanelView(), ephemeral=True)
+    await interaction.response.send_message(embed=embed, view=UserPanelView())
 
 @bot.tree.command(name="setup_admin", description="إرسال لوحة التحكم الإدارية")
+@commands.has_permissions(administrator=True)
 async def setup_admin(interaction: discord.Interaction):
     embed = discord.Embed(
         title="⚙️ │ لوحة التحكم الإدارية",
         description="استخدم الأزرار أدناه لإدارة رصيد الأعضاء وإضافة المنتجات.",
         color=0xE74C3C
     )
-    await interaction.response.send_message(embed=embed, view=AdminPanelView(), ephemeral=True)
+    await interaction.response.send_message(embed=embed, view=AdminPanelView())
 
 token = os.environ.get("DISCORD_TOKEN")
 bot.run(token)
