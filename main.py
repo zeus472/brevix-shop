@@ -643,6 +643,13 @@ class AdminPanelView(ui.View):
 
 @bot.event
 async def on_ready():
+    # مزامنة الأوامر مع ديسكورد لتظهر كـ Slash Commands
+    try:
+        await bot.tree.sync()
+        print("✅ تم مزامنة Slash Commands بنجاح.")
+    except Exception as e:
+        print(f"❌ خطأ في مزامنة الأوامر: {e}")
+
     bot.add_view(UserPanelView())
     bot.add_view(StorePanelView())
     bot.add_view(TicketControlsView())
@@ -686,35 +693,34 @@ async def on_voice_state_update(member, before, after):
                 conn.commit()
                 await check_level_up(member)
 
-# ==================== أوامر إرسال اللوحات (بدون قيود للأونر) ====================
+# ==================== أوامر إرسال اللوحات (Slash Commands) ====================
 
-@bot.command()
-async def setup_store(ctx):
+@bot.tree.command(name="setup_store", description="إرسال لوحة متجر Brevix")
+async def setup_store(interaction: discord.Interaction):
     embed = discord.Embed(
         title="🛍️ │ متجر Brevix الرسمي",
         description="مرحباً بك في المتجر! اضغط على الأزرار أدناه للاستعراض والشراء.",
         color=0xF1C40F
     )
-    await ctx.send(embed=embed, view=StorePanelView())
+    await interaction.response.send_message(embed=embed, view=StorePanelView(), ephemeral=True)
 
-@bot.command()
-async def setup_user(ctx):
+@bot.tree.command(name="setup_user", description="إرسال لوحة خدمات الأعضاء")
+async def setup_user(interaction: discord.Interaction):
     embed = discord.Embed(
         title="👤 │ لوحة خدمات الأعضاء",
         description="استخدم الأزرار أدناه للتحكم بملفك الشخصي وعجلة الحظ.",
         color=0x3498DB
     )
-    await ctx.send(embed=embed, view=UserPanelView())
+    await interaction.response.send_message(embed=embed, view=UserPanelView(), ephemeral=True)
 
-@bot.command()
-async def setup_admin(ctx):
+@bot.tree.command(name="setup_admin", description="إرسال لوحة التحكم الإدارية")
+async def setup_admin(interaction: discord.Interaction):
     embed = discord.Embed(
         title="⚙️ │ لوحة التحكم الإدارية",
         description="استخدم الأزرار أدناه لإدارة رصيد الأعضاء وإضافة المنتجات.",
         color=0xE74C3C
     )
-    await ctx.send(embed=embed, view=AdminPanelView())
+    await interaction.response.send_message(embed=embed, view=AdminPanelView(), ephemeral=True)
 
 token = os.environ.get("DISCORD_TOKEN")
 bot.run(token)
-
