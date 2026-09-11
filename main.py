@@ -199,7 +199,6 @@ class BuyModal(discord.ui.Modal, title="شراء منتج من المتجر"):
         },
     )
 
-    # حماية ضد إعادة شراء الرول إذا كان يمتلكها بالفعل
     if (
         product["is_role"]
         and product.get("role_id")
@@ -213,7 +212,6 @@ class BuyModal(discord.ui.Modal, title="شراء منتج من المتجر"):
     final_price = product["price"]
     discount_applied_text = "بدون خصم"
 
-    # معالجة كود الخصم بأمان وتأكيد الشروط
     if d_code:
       if not product.get("allow_discount", True):
         await interaction.response.send_message(
@@ -224,17 +222,13 @@ class BuyModal(discord.ui.Modal, title="شراء منتج من المتجر"):
       valid_code_found = False
       discount_percent = 0
 
-      # 1. فحص الأكواد الخاصة بالعضو
       user_discounts = user_data.get("discount_codes", {})
       if d_code in user_discounts:
         discount_percent = user_discounts[d_code]
         valid_code_found = True
-        del user_discounts[d_code]  # استخدام لمرة واحدة وحذفه فورا
-
-      # 2. فحص الأكواد الإدارية العامة أو الخاصة بالرول
+        del user_discounts[d_code]
       elif d_code in database["admin_codes"]:
         ac_data = database["admin_codes"][d_code]
-        # تحقق من الصلاحية بالأيام
         if ac_data["expiry_date"] and datetime.datetime.now() > ac_data[
             "expiry_date"
         ]:
@@ -242,7 +236,6 @@ class BuyModal(discord.ui.Modal, title="شراء منتج من المتجر"):
               "❌ عذراً، انتهت صلاحية كود الخصم هذا!", ephemeral=True
           )
           return
-        # تحقق من عدد الاستخدامات
         if (
             ac_data["max_uses"] is not None
             and ac_data["uses"] >= ac_data["max_uses"]
@@ -252,7 +245,6 @@ class BuyModal(discord.ui.Modal, title="شراء منتج من المتجر"):
               ephemeral=True,
           )
           return
-        # تحقق من الرول المطلوبة للكود
         if ac_data["role_id"]:
           role_required = interaction.guild.get_role(ac_data["role_id"])
           if not role_required or role_required not in interaction.user.roles:
@@ -279,7 +271,6 @@ class BuyModal(discord.ui.Modal, title="شراء منتج من المتجر"):
         )
         return
 
-    # فحص كفاية رصيد العضو بدقة تامة
     if user_data["coins"] < final_price:
       await interaction.response.send_message(
           f"❌ رصيدك غير كافٍ! السعر المطلوب بعد الخصم هو {final_price} BX"
@@ -288,7 +279,6 @@ class BuyModal(discord.ui.Modal, title="شراء منتج من المتجر"):
       )
       return
 
-    # تنفيذ الخصم وتحديث المخزون
     user_data["coins"] -= final_price
     user_data["inventory"].append(code)
 
@@ -311,7 +301,6 @@ class BuyModal(discord.ui.Modal, title="شراء منتج من المتجر"):
           ephemeral=True,
       )
     else:
-      # فتح تيكت تواصل آمنة واحترافية
       overwrites = {
           interaction.guild.default_role: discord.PermissionOverwrite(
               read_messages=False
@@ -532,7 +521,7 @@ class TransferModal(discord.ui.Modal, title="تحويل عملات لصديق"):
       )
       return
 
-    fee = int(amt * 0.1)  # 10% رسوم تحويل
+    fee = int(amt * 0.1)
     net_amount = amt - fee
 
     sender_id = str(interaction.user.id)
@@ -646,7 +635,6 @@ class WheelButtonsView(discord.ui.View):
         user_id, {"coins": 1000, "discount_codes": {}, "daily_wheels": 3}
     )
 
-    # حماية تأمينية صارمة ضد الثغرات واللف بالمجان
     today_str = datetime.datetime.now().strftime("%Y-%m-%d")
     if user_data.get("last_wheel_date") != today_str:
       user_data["daily_wheels"] = 3
@@ -912,7 +900,6 @@ class AdminView(discord.ui.View):
     await interaction.response.send_modal(InspectUserModal())
 
 
-# Modals للوحة الإدارة (الأزرار الـ 7)
 class AddProductModal(discord.ui.Modal, title="إضافة منتج جديد للمتجر"):
   prod_name = discord.ui.TextInput(
       label="اسم المنتج", placeholder="مثال: رول مميز / خدمة تفعيل"
@@ -1103,7 +1090,6 @@ class EditLevelModal(discord.ui.Modal, title="تعديل مستوى (ليفل) �
         ephemeral=True,
     )
 
-    # إرسال رسالة تهنئة احترافية في روم الليفل الثابت
     try:
       member = await interaction.guild.fetch_member(int(u_id))
     except Exception:
@@ -1238,8 +1224,7 @@ class DiscountManagementModal(discord.ui.Modal, title="إنشاء أو إنها�
       if code in database["admin_codes"]:
         del database["admin_codes"][code]
         await interaction.response.send_message(
-            f"✅ تم إنهاء وإلغاء صلاحية كود الخصم `{code}` تماماً (يشرب ميته!).",
-            ephemeral=True,
+            f"✅ تم إنهاء وإلغاء صلاحية كود الخصم `{code}` تماماً.", ephemeral=True
         )
       else:
         await interaction.response.send_message(
