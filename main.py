@@ -15,8 +15,6 @@ CATEGORY_IDS = {
     "player": 123456789012345678,  # فئة تذاكر اللاعبين
     "faction": 123456789012345678, # فئة تذاكر قادة الفصائل
     "staff": 123456789012345678,   # فئة تذاكر الإداريين
-    "store": 123456789012345678,   # فئة المتجر (لو هتضيفها بعدين)
-    "dev": 123456789012345678      # فئة الدعم الفني (لو هتضيفها بعدين)
 }
 
 class TicketView(discord.ui.View):
@@ -67,11 +65,19 @@ class TicketView(discord.ui.View):
     async def staff_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
         await self.create_ticket(interaction, "staff", "staff-ticket")
 
+@bot.event
+async def on_ready():
+    print(f"Logged in as {bot.user.name}")
+    bot.add_view(TicketView())
+
 # أمر إرسال بانر وقوانين التذاكر
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def setup_tickets(ctx):
-    await ctx.message.delete()
+    try:
+        await ctx.message.delete()
+    except:
+        pass
     
     embed = discord.Embed(
         description=(
@@ -105,10 +111,4 @@ async def setup_tickets(ctx):
     view = TicketView()
     await ctx.send(embed=embed, view=view)
 
-@bot.event
-async def on_ready():
-    print(f"Logged in as {bot.user.name}")
-    bot.add_view(TicketView()) # لتفادي تعطيل الأزرار عند إعادة تشغيل البوت
-
-# ضع التوكن الخاص بك هنا
 bot.run(os.getenv("DISCORD_TOKEN"))
