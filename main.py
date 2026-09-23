@@ -45,47 +45,20 @@ ticket_data = {
     }
 }
 
-class TicketView(discord.ui.View):
+class TicketSelect(discord.ui.Select):
     def __init__(self):
-        super().__init__(timeout=None)
+        options = [
+            discord.SelectOption(label="شكوى ضد لاعب", value="ticket_player", emoji="📗", description="لتقديم البلاغات ضد اللاعبين والاستفسار عن العقوبات"),
+            discord.SelectOption(label="شكوى ضد قائد فصيل", value="ticket_faction", emoji="📘", description="لتقديم الشكاوى ضد قادة الفصائل وتجاوزاتهم"),
+            discord.SelectOption(label="شكوى ضد إداري", value="ticket_staff", emoji="📕", description="للإبلاغ عن تجاوز أو سوء استخدام للسلطة للإدارة"),
+            discord.SelectOption(label="الدعم الفني", value="ticket_support", emoji="🛠️", description="للمساعدة العامة وحل المشاكل التقنية"),
+            discord.SelectOption(label="المتجر", value="ticket_store", emoji="🛍️")
+        ]
+        super().__init__(placeholder="يرجى اختيار الموضوع المناسب", min_values=1, max_values=1, options=options, custom_id="ticket_select_menu")
 
-    @discord.ui.button(label="شكوى ضد لاعب", style=discord.ButtonStyle.secondary, emoji="📗", custom_id="ticket_player", row=0)
-    async def player_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self.create_ticket(interaction, 'ticket_player')
-
-    @discord.ui.button(label="شكوى ضد قائد فصيل", style=discord.ButtonStyle.secondary, emoji="📘", custom_id="ticket_faction", row=0)
-    async def faction_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self.create_ticket(interaction, 'ticket_faction')
-
-    @discord.ui.button(label="شكوى ضد إداري", style=discord.ButtonStyle.secondary, emoji="📕", custom_id="ticket_staff", row=0)
-    async def staff_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self.create_ticket(interaction, 'ticket_staff')
-
-    @discord.ui.button(label="الدعم الفني", style=discord.ButtonStyle.secondary, emoji="🛠️", custom_id="ticket_support", row=0)
-    async def support_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self.create_ticket(interaction, 'ticket_support')
-
-    @discord.ui.button(label="المتجر", style=discord.ButtonStyle.secondary, emoji="🛍️", custom_id="ticket_store", row=1)
-    async def store_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self.create_ticket(interaction, 'ticket_store')
-
-    @discord.ui.button(label="قوانين التذاكر", style=discord.ButtonStyle.primary, emoji="📜", custom_id="ticket_rules", row=1)
-    async def rules_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        rules_text = (
-            "**قوانين التذاكر:**\n\n"
-            "1. لن يتم قبول أي شكاوى مقدمة من طرف ثالث.\n"
-            "2. قد لا يتم قبول الأدلة إذا تم تسجيلها قبل أكثر من أسبوع من تاريخ فتح التذكرة.\n"
-            "3. يمكن تقديم طلب استئناف ضد العقوبات الصادرة من الإداريين خلال مدة أقصاها 3 أيام فقط.\n"
-            "4. يُمنع منعاً باتاً فتح أكثر من تذكرة لنفس الحالة أو الشكوى.\n"
-            "5. يجب أن يكون التاريخ، الوقت، واسم الشخص ظاهرين بوضوح تام في الأدلة المُقدمة، والا سيتم رفض الشكوى فوراً.\n"
-            "6. الشكاوي ليست مجهولة أو سرية؛ وقد يتم مشاركة الدليل مع الطرف الآخر عند اتخاذ الإجراءات.\n"
-            "7. يُمنع استخدام الإشارات (Mentions) غير الضرورية أو إساءة استخدامها للإدارة داخل التذاكر.\n"
-            "8. تستغرق مدة مراجعة الشكاوي، التقارير، واتخاذ الإجراءات اللازمة ما يصل إلى 24 ساعة كحد أقصى (باستثناء بعض الحالات التي تتطلب تدقيقاً خاصاً)."
-        )
-        await interaction.response.send_message(rules_text, ephemeral=True)
-
-    async def create_ticket(self, interaction: discord.Interaction, key: str):
+    async def callback(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
+        key = self.values[0]
         data = ticket_data[key]
         guild = interaction.guild
         member = interaction.user
@@ -113,6 +86,28 @@ class TicketView(discord.ui.View):
         
         await channel.send(welcome_msg)
         await interaction.followup.send(f"تم فتح تذكرتك بنجاح: {channel.mention}", ephemeral=True)
+
+class TicketView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+        # إضافة القائمة المنسدلة في الصف الأول
+        self.add_item(TicketSelect())
+
+    # زر قوانين التذاكر في الصف الثاني
+    @discord.ui.button(label="قوانين التذاكر", style=discord.ButtonStyle.primary, emoji="📜", custom_id="ticket_rules", row=1)
+    async def rules_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        rules_text = (
+            "**قوانين التذاكر:**\n\n"
+            "1. لن يتم قبول أي شكاوى مقدمة من طرف ثالث.\n"
+            "2. قد لا يتم قبول الأدلة إذا تم تسجيلها قبل أكثر من أسبوع من تاريخ فتح التذكرة.\n"
+            "3. يمكن تقديم طلب استئناف ضد العقوبات الصادرة من الإداريين خلال مدة أقصاها 3 أيام فقط.\n"
+            "4. يُمنع منعاً باتاً فتح أكثر من تذكرة لنفس الحالة أو الشكوى.\n"
+            "5. يجب أن يكون التاريخ، الوقت، واسم الشخص ظاهرين بوضوح تام في الأدلة المُقدمة، والا سيتم رفض الشكوى فوراً.\n"
+            "6. الشكاوي ليست مجهولة أو سرية؛ وقد يتم مشاركة الدليل مع الطرف الآخر عند اتخاذ الإجراءات.\n"
+            "7. يُمنع استخدام الإشارات (Mentions) غير الضرورية أو إساءة استخدامها للإدارة داخل التذاكر.\n"
+            "8. تستغرق مدة مراجعة الشكاوي، التقارير، واتخاذ الإجراءات اللازمة ما يصل إلى 24 ساعة كحد أقصى (باستثناء بعض الحالات التي تتطلب تدقيقاً خاصاً)."
+        )
+        await interaction.response.send_message(rules_text, ephemeral=True)
 
 @bot.event
 async def on_ready():
