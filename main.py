@@ -1,5 +1,5 @@
 import discord
-from discord.ext import commands, tasks
+from discord.ext import commands
 from discord.ui import View, Button, Select, Modal, TextInput
 import json
 import os
@@ -19,11 +19,11 @@ CATEGORIES = {
     "player_complaint": "شكوى ضد لاعب",
     "faction_complaint": "شكوى ضد قائد فصيل",
     "admin_complaint": "شكوى ضد إداري",
-    "tech_support": "تذكرة الدعم الفني",
-    "store_ticket": "تذكرة المتجر"
+    "tech_support": "الدعم الفني",
+    "store_ticket": "المتجر"
 }
 
-# أساب الإغلاق الثلاثة
+# أسباب الإغلاق الثلاثة
 CLOSE_REASONS = [
     "عفوا قائمة التذاكر ممتلئة حاليا يرجي المحاولة في وقت لاحق",
     "عفوا قسم {category} مغلق حاليا للصيانة يرجي المحاولة في وقت لاحق",
@@ -46,7 +46,7 @@ def load_data():
             "closed_categories": {}, # {cat_key: reason_index}
             "banned_users": [],       # [user_id]
             "blocked_admins": [],     # [admin_id]
-            "active_tickets": {}      # {channel_id: {"user_id": int, "admin_id": int, "start_time": iso_str, "card_msg_id": int, "panel_channel_id": int, "category": str}}
+            "active_tickets": {}      # {channel_id: ...}
         }
     with open(DATA_FILE, "r", encoding="utf-8") as f:
         return json.load(f)
@@ -209,12 +209,10 @@ class CategoryToggleView(View):
 
     async def toggle_action(self, interaction: discord.Interaction):
         if self.cat_key in bot_data["closed_categories"]:
-            # إعادة الفتح
             del bot_data["closed_categories"][self.cat_key]
             save_data(bot_data)
             await interaction.response.send_message(f"🟢 تم فتح قسم **{CATEGORIES[self.cat_key]}** بنجاح أمام الأعضاء!", ephemeral=True)
         else:
-            # طلب سبب الإغلاق
             view = ReasonSelectView(self.cat_key)
             await interaction.response.send_message("⚠️ يرجى اختيار سبب إغلاق القسم:", view=view, ephemeral=True)
 
@@ -240,7 +238,7 @@ class ReasonSelectView(View):
         reason_msg = CLOSE_REASONS[reason_idx].format(category=CATEGORIES[self.cat_key])
         await interaction.response.send_message(f"🔴 تم إغلاق قسم **{CATEGORIES[self.cat_key]}** بنجاح.\n**الرسالة الظاهرة للاعبين:**\n> {reason_msg}", ephemeral=True)
 
-# ----------------- الرئيسية: لوحة التحكم الشاملة -----------------
+# ----------------- الرئيسية: لوحة التحكم الإدارية -----------------
 class AdminDashboardView(View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -267,7 +265,7 @@ class AdminDashboardView(View):
         await interaction.response.send_modal(AdminLookupModal())
 
 # ==========================================
-# 4. نظام فتح التذاكر والمعالجة
+# 4. نظام فتح التذاكر والمعالجة (المطابق للتصميم القديم)
 # ==========================================
 
 class TicketModal(Modal):
@@ -284,7 +282,6 @@ class TicketModal(Modal):
         self.add_item(self.problem_desc)
 
     async def on_submit(self, interaction: discord.Interaction):
-        # التحقق من السبب الأول (قائمة التذاكر ممتلئة) بعد كتابة البيانات عند الإرسال
         if self.cat_key in bot_data["closed_categories"]:
             reason_idx = bot_data["closed_categories"][self.cat_key]
             if reason_idx == 0:
@@ -292,7 +289,6 @@ class TicketModal(Modal):
                 await interaction.response.send_message(msg, ephemeral=True)
                 return
 
-        # إنشاء الروم الخاصة بالتذكرة
         guild = interaction.guild
         category_channel = discord.utils.get(guild.categories, name="التذاكر") or await guild.create_category("التذاكر")
         
@@ -308,7 +304,6 @@ class TicketModal(Modal):
         ticket_channel = await guild.create_text_channel(name=channel_name, category=category_channel, overwrites=overwrites)
         start_time_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
         
-        # إرسال كارت التذكرة في روم player-tickets للتتبع
         panel_channel = discord.utils.get(guild.channels, name="player-tickets")
         card_msg_id = None
         
@@ -330,7 +325,6 @@ class TicketModal(Modal):
             card_msg = await panel_channel.send(embed=card_embed, view=TicketCardActionsView(ticket_channel.id))
             card_msg_id = card_msg.id
 
-        # حفظ بيانات التذكرة النشطة
         bot_data["active_tickets"][str(ticket_channel.id)] = {
             "user_id": interaction.user.id,
             "admin_id": None,
@@ -345,7 +339,6 @@ class TicketModal(Modal):
         }
         save_data(bot_data)
 
-        # رسالة ترحيبية داخل روم التذكرة
         welcome_embed = discord.Embed(
             title=f"تذكرة {CATEGORIES[self.cat_key]} #{ticket_number}",
             description=f"أهلاً بك {interaction.user.mention}، تم فتح تذكرتك بنجاح.\nيرجى انتظار رد الفريق الإداري.",
@@ -354,18 +347,52 @@ class TicketModal(Modal):
         await ticket_channel.send(embed=welcome_embed)
         await interaction.response.send_message(f"✅ تم فتح تذكرتك بنجاح في {ticket_channel.mention}", ephemeral=True)
 
-# واجهة فتح التذاكر من قبل الأعضاء
-class TicketOpenView(View):
+# ---------------- القائمة المنسدلة لاختيار الموضوع ----------------
+class TicketSelect(Select):
     def __init__(self):
-        super().__init__(timeout=None)
+        options = [
+            discord.SelectOption(
+                label="شكوى ضد لاعب",
+                description="لتقديم البلاغات ضد اللاعبين والاستفسار عن العقوبات",
+                emoji="📗",
+                value="player_complaint"
+            ),
+            discord.SelectOption(
+                label="شكوى ضد قائد فصيل",
+                description="لتتقديم الشكاوى ضد قادة الفصائل وتجاوزاتهم",
+                emoji="📘",
+                value="faction_complaint"
+            ),
+            discord.SelectOption(
+                label="شكوى ضد إداري",
+                description="للإبلاغ عن تجاوز أو سوء استخدام السلطة للإدارة",
+                emoji="📕",
+                value="admin_complaint"
+            ),
+            discord.SelectOption(
+                label="الدعم الفني",
+                description="للمساعدة العامة وحل المشاكل التقنية",
+                emoji="🛠️",
+                value="tech_support"
+            ),
+            discord.SelectOption(
+                label="المتجر",
+                description="استفسارات ومعاملات متجر السيرفر",
+                emoji="👛",
+                value="store_ticket"
+            ),
+        ]
+        super().__init__(placeholder="يرجى اختيار الموضوع المناسب", min_values=1, max_values=1, options=options, custom_id="ticket_select_menu")
 
-    async def handle_ticket_request(self, interaction: discord.Interaction, cat_key: str):
+    async def callback(self, interaction: discord.Interaction):
+        cat_key = self.values[0]
+
         # 1. التحقق من حظر العضو
         if interaction.user.id in bot_data["banned_users"]:
             await interaction.response.send_message("عفواً، أنت محظور من فتح التذاكر.", ephemeral=True)
             return
 
-        # 2. التحقق من حالة القسم (السبب 2 و 3 يُمنعان فوراً قبل فتح الـ Modal)
+        # 2. التحقق من حالة القسم
         if cat_key in bot_data["closed_categories"]:
             reason_idx = bot_data["closed_categories"][cat_key]
             if reason_idx in [1, 2]:
@@ -373,28 +400,28 @@ class TicketOpenView(View):
                 await interaction.response.send_message(reason_msg, ephemeral=True)
                 return
 
-        # فتح استمارة البيانات
+        # فتح الـ Modal للقسم المختار
         await interaction.response.send_modal(TicketModal(cat_key))
 
-    @discord.ui.button(label="شكوى ضد لاعب", style=discord.ButtonStyle.primary, custom_id="btn_player_complaint")
-    async def player_complaint(self, interaction: discord.Interaction, button: Button):
-        await self.handle_ticket_request(interaction, "player_complaint")
+# ---------------- واجهة التذاكر الشاملة للأعضاء ----------------
+class TicketOpenView(View):
+    def __init__(self):
+        super().__init__(timeout=None)
+        # إضافة القائمة المنسدلة
+        self.add_item(TicketSelect())
 
-    @discord.ui.button(label="شكوى ضد قائد فصيل", style=discord.ButtonStyle.primary, custom_id="btn_faction_complaint")
-    async def faction_complaint(self, interaction: discord.Interaction, button: Button):
-        await self.handle_ticket_request(interaction, "faction_complaint")
-
-    @discord.ui.button(label="شكوى ضد إداري", style=discord.ButtonStyle.danger, custom_id="btn_admin_complaint")
-    async def admin_complaint(self, interaction: discord.Interaction, button: Button):
-        await self.handle_ticket_request(interaction, "admin_complaint")
-
-    @discord.ui.button(label="تذكرة الدعم الفني", style=discord.ButtonStyle.success, custom_id="btn_tech_support")
-    async def tech_support(self, interaction: discord.Interaction, button: Button):
-        await self.handle_ticket_request(interaction, "tech_support")
-
-    @discord.ui.button(label="تذكرة المتجر", style=discord.ButtonStyle.secondary, custom_id="btn_store_ticket")
-    async def store_ticket(self, interaction: discord.Interaction, button: Button):
-        await self.handle_ticket_request(interaction, "store_ticket")
+    @discord.ui.button(label="قوانين التذاكر", style=discord.ButtonStyle.primary, emoji="📜", custom_id="btn_rules")
+    async def show_rules(self, interaction: discord.Interaction, button: Button):
+        embed = discord.Embed(
+            title="📜 قوانین وشروط التذاكر",
+            description=(
+                "• يُمنع فتح التذاكر العشوائية أو السبام.\n"
+                "• يرجى الاحترام أثناء التحدث مع الفريق الإداري.\n"
+                "• يرجى عدم استدعاء الإداريين (Mention) وتوفير الأدلة مباشرة."
+            ),
+            color=discord.Color.gold()
+        )
+        await interaction.response.send_message(embed=embed, ephemeral=True)
 
 # ==========================================
 # 5. أزرار أفعال التذكرة (استلام، تحويل، إغلاق)
@@ -407,7 +434,6 @@ class TicketCardActionsView(View):
 
     @discord.ui.button(label="استلام", style=discord.ButtonStyle.success, custom_id="card_claim_btn")
     async def claim_ticket(self, interaction: discord.Interaction, button: Button):
-        # التحقق من أن الإداري ليس ممنوعاً من الاستلام
         if interaction.user.id in bot_data["blocked_admins"]:
             await interaction.response.send_message("❌ عفواً، أنت ممنوع حالياً من استلام التذاكر.", ephemeral=True)
             return
@@ -420,7 +446,6 @@ class TicketCardActionsView(View):
         ticket_info["admin_id"] = interaction.user.id
         save_data(bot_data)
 
-        # تحديث الكارت
         embed = interaction.message.embeds[0]
         for idx, field in enumerate(embed.fields):
             if field.name == "📌 الحالة":
@@ -452,7 +477,6 @@ class TransferModal(Modal, title="🔄 تحويل التذكرة لإداري آ
             await interaction.response.send_message("❌ يجب كتابة ID صحيح.", ephemeral=True)
             return
 
-        # منع التحويل لإداري ممنوع من الاستلام
         if new_admin_id in bot_data["blocked_admins"]:
             await interaction.response.send_message("❌ لا يمكنك تحويل التذكرة لهذا الإداري لأنه ممنوع من استلام التذاكر.", ephemeral=True)
             return
@@ -487,7 +511,6 @@ class CloseReasonModal(Modal, title="📝 إغلاق التذكرة وشرح ا�
         admin_mention = f"<@{ticket_info['admin_id']}>" if ticket_info["admin_id"] else "غير محدد"
         user_id = ticket_info["user_id"]
 
-        # 1. إرسال ملخص إغلاق التذكرة عبر الخاص (DM) بدون نجمة وبالمواصفات المطلوبة
         dm_embed = discord.Embed(
             title="ملخص إغلاق التذكرة",
             description="شكراً لتواصلك مع نظام الدعم الفني، تم إغلاق تذكرتك وتوثيق الحل بنجاح.",
@@ -507,12 +530,10 @@ class CloseReasonModal(Modal, title="📝 إغلاق التذكرة وشرح ا�
             except discord.Forbidden:
                 pass
 
-        # 2. حذف روم التذكرة
         channel = interaction.guild.get_channel(int(self.ticket_channel_id))
         if channel:
             await channel.delete()
 
-        # 3. حذف البيانات وتحديث الكارت
         del bot_data["active_tickets"][self.ticket_channel_id]
         save_data(bot_data)
 
@@ -521,11 +542,10 @@ class CloseReasonModal(Modal, title="📝 إغلاق التذكرة وشرح ا�
 # ==========================================
 # 6. الـ Tasks لتحديث الوقت بانتظام
 # ==========================================
+from discord.ext import tasks
 
 @tasks.loop(minutes=1)
 async def update_ticket_cards():
-    """تحديث حقل الوقت المستغرق في الكارت بانتظام بدون مشاكل Index"""
-    to_remove = []
     for ticket_channel_id, info in list(bot_data["active_tickets"].items()):
         panel_channel_id = info.get("panel_channel_id")
         card_msg_id = info.get("card_msg_id")
@@ -543,7 +563,6 @@ async def update_ticket_cards():
                 embed = card_msg.embeds[0]
                 updated = False
                 
-                # البحث عن الحقل بالاسم لضمان الاستبدال بدقة
                 for idx, field in enumerate(embed.fields):
                     if field.name == "⏱️ الوقت المستغرق":
                         new_time = format_time_spent(info["start_time"])
@@ -585,17 +604,21 @@ async def setup_admin_panel(ctx):
 
 @bot.command()
 async def setup_tickets_panel(ctx):
-    """أمر لإنشاء لوحة فتح التذاكر للأعضاء"""
+    """أمر لإنشاء لوحة فتح التذاكر للأعضاء بالمظهر الكامل الأصلي"""
     if not is_authorized(ctx.author):
         await ctx.send("❌ لا تملك صلاحية استخدام هذا الأمر.")
         return
 
+    # إنشاء Embed بنص وصورة البانر الأصلي
     embed = discord.Embed(
-        title="🎫 نظام الدعم والشكاوى",
-        description="يرجى اختيار القسم المناسب للتذكرة التي تريد فتحها من الأزرار التالية:",
-        color=discord.Color.blue()
+        title="📂 قسم التذاكر والدعم الفني",
+        description="مرحباً بك في قسم التذاكر والدعم الفني، اختر الموضوع المناسب من القائمة أدناه لنساعدك في أقرب وقت.\n\n*يرجى الالتزام بقوانين التذاكر لتجنب التعرض للعقوبة.*",
+        color=0x2b2d31
     )
+    # رابط الصورة الظاهرة في البانر القديم (BX BREVIX RP)
+    embed.set_image(url="https://media.discordapp.net/attachments/1234567890/1234567890/brevix_banner.jpg") 
+
     await ctx.send(embed=embed, view=TicketOpenView())
 
-# تشغيل البوت باستخدام متغير البيئة في Railway
-bot.run(os.getenv("DISCORD_TOKEN"))
+# تشغيل البوت
+# bot.run(os.getenv("DISCORD_TOKEN"))
