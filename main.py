@@ -1,5 +1,7 @@
 import os
+import re
 import random
+from datetime import datetime
 import discord
 from discord.ext import commands
 from dotenv import load_dotenv
@@ -14,8 +16,11 @@ intents.members = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 # ---------------------------------------------------------
-# البيانات الأساسية، الرولات، وقنوات الإدارة
+# البيانات الأساسية، الرولات، والقنوات
 # ---------------------------------------------------------
+
+# روم اللوج النهائي للتذاكر المغلقة
+TICKET_LOG_CHANNEL_ID = 1552029787416174693
 
 # جميع رولات الإدارة المسموح بالتحويل إليها
 ALL_ADMIN_ROLES = [
@@ -35,7 +40,7 @@ EXEMPT_ROLES = [
     1552030964161450027
 ]
 
-# بيانات التذاكر الخمس مع تحديد قنوات الإدارة الموجه إليها الكارت
+# بيانات التذاكر وقنوات الإدارة الموجهة إليها الكروت
 ticket_data = {
     'ticket_player': {
         'name': 'شكوى ضد لاعب',
@@ -69,12 +74,17 @@ ticket_data = {
     }
 }
 
-# قاعدة بيانات الذاكرة للتذاكر النشطة
+# قاعدة البيانات الحية للتذاكر النشطة
 active_tickets = {}
+
+# دالة التحقق من أن الاسم إنجليزي فقط ويتكون من كلمتين بمسافة واحدة
+def validate_english_two_words(name_str: str) -> bool:
+    pattern = r'^[A-Za-z]+ [A-Za-z]+$'
+    return bool(re.match(pattern, name_str.strip()))
 
 
 # ---------------------------------------------------------
-# النوافذ المنبثقة (Modals) لإدخال البيانات قبل فتح التذكرة
+# النوافذ المنبثقة (Modals)
 # ---------------------------------------------------------
 class TicketModal(discord.ui.Modal):
     def __init__(self, ticket_key: str):
@@ -84,7 +94,7 @@ class TicketModal(discord.ui.Modal):
 
         self.ingame_name = discord.ui.TextInput(
             label="اسمك داخل سيرفر اللعبة",
-            placeholder="اكتب اسمك الثلاثي داخل اللعبة هنا...",
+            placeholder="اكتب اسمك داخل سيرفر اللعبة (كلمتين إنجليزي)...",
             required=True
         )
         self.add_item(self.ingame_name)
@@ -92,21 +102,21 @@ class TicketModal(discord.ui.Modal):
         if ticket_key == "ticket_player":
             self.target_name = discord.ui.TextInput(
                 label="اسم اللاعب المقدم ضده الشكوى",
-                placeholder="اكتب اسم اللاعب...",
+                placeholder="اكتب اسم اللاعب (كلمتين إنجليزي)...",
                 required=True
             )
             self.add_item(self.target_name)
         elif ticket_key == "ticket_faction":
             self.target_name = discord.ui.TextInput(
                 label="اسم قائد الفصيل المقدم ضده الشكوى",
-                placeholder="اكتب اسم قائد الفصيل...",
+                placeholder="اكتب اسم قائد الفصيل (كلمتين إنجليزي)...",
                 required=True
             )
             self.add_item(self.target_name)
         elif ticket_key == "ticket_staff":
             self.target_name = discord.ui.TextInput(
                 label="اسم الإداري المقدم ضده الشكوى",
-                placeholder="اكتب اسم الإداري...",
+                placeholder="اكتب اسم الإداري (كلمتين إنجليزي)...",
                 required=True
             )
             self.add_item(self.target_name)
@@ -116,21 +126,34 @@ class TicketModal(discord.ui.Modal):
                 label="شرح المشكلة / التفاصيل",
                 style=discord.TextStyle.paragraph,
                 placeholder="اشرح المشكلة بالتفصيل هنا...",
+                max_length=1500,
                 required=True
             )
             self.add_item(self.details)
 
     async def on_submit(self, interaction: discord.Interaction):
+        # التحقق من صحة صيغة الأسماء الإنجليزية
+        if not validate_english_two_words(self.ingame_name.value):
+            return await interaction.response.send_message(
+                "❌ **خطأ في كتابة الاسم:** يجب كتابة اسمك باللغة الإنجليزية فقط، ويكون مكوناً من كلمتين وبينهما مسافة واحدة (مثال: `John Doe`).",
+                ephemeral=True
+            )
+
+        if hasattr(self, 'target_name'):
+            if not validate_english_two_words(self.target_name.value):
+                return await interaction.response.send_message(
+                    "❌ **خطأ في كتابة اسم المشتكى عليه:** يجب كتابة الاسم باللغة الإنجليزية فقط، ويكون مكوناً من كلمتين وبينهما مسافة واحدة (مثال: `Alex Smith`).",
+                    ephemeral=True
+                )
+
         await interaction.response.defer(ephemeral=True)
 
         guild = interaction.guild
         member = interaction.user
         data = ticket_data[self.ticket_key]
 
-        # توليد ID عشوائي وتسمية القناة
         ticket_id = str(random.randint(100000, 999999))
         channel_name = f"ticket-{ticket_id}"
-
         category = guild.get_channel(data['category_id'])
 
         overwrites = {
@@ -143,32 +166,34 @@ class TicketModal(discord.ui.Modal):
             if role:
                 overwrites[role] = discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True)
 
-        # إنشاء قناة التذكرة
         channel = await guild.create_text_channel(
             name=channel_name,
             category=category,
             overwrites=overwrites
         )
 
-        # تجميع تفاصيل المدخلات
-        form_details = f"• **الاسم باللعبة:** {self.ingame_name.value}\n"
+        form_details = f"• **الاسم باللعبة:** `{self.ingame_name.value.strip()}`\n"
         if hasattr(self, 'target_name'):
-            form_details += f"• **المشتكى عليه:** {self.target_name.value}\n"
+            form_details += f"• **المشتكى عليه:** `{self.target_name.value.strip()}`\n"
         if hasattr(self, 'details'):
-            form_details += f"• **شرح المشكلة:** {self.details.value}\n"
+            form_details += f"• **شرح المشكلة:** {self.details.value.strip()}\n"
 
-        # حفظ التذكرة في الذاكرة
+        created_time = datetime.now()
+
         active_tickets[ticket_id] = {
             "channel_id": channel.id,
             "user_id": member.id,
             "type_name": data['name'],
             "claimed_by": None,
+            "transferred_to": None,
+            "created_at": created_time,
+            "claimed_at": None,
+            "transferred_at": None,
             "card_msg_id": None,
             "log_channel_id": data['target_log_channel'],
             "form_details": form_details
         }
 
-        # 1. إرسال الإمبد داخل روم التذكرة
         embed_ticket = discord.Embed(
             title="قسم التذاكر والدعم الفني",
             description=f"قام {member.mention} بإنشاء تذكرة",
@@ -177,7 +202,7 @@ class TicketModal(discord.ui.Modal):
         embed_ticket.add_field(name="🎫 نوع التذكرة", value=data['name'], inline=True)
         embed_ticket.add_field(name="رقم التذكرة", value=f"`{ticket_id}`", inline=True)
         embed_ticket.add_field(name="📋 بيانات التذكرة المدخلة", value=form_details, inline=False)
-        
+
         if self.ticket_key in ["ticket_player", "ticket_faction", "ticket_staff"]:
             embed_ticket.set_footer(text="⚠️ تنبيه: يرجى إرفاق الدلائل وإثبات الحالة بعد إنشاء التذكرة فوراً.")
         else:
@@ -188,7 +213,7 @@ class TicketModal(discord.ui.Modal):
         await channel.send(embed=embed_ticket)
         await channel.send(f"**طاقم الإدارة المسؤول:**\n{role_mentions}")
 
-        # 2. إرسال كارت التذكرة التفاعلي في قناة الإدارة المخصصة
+        # إرسال الكارت لقناة الإدارة
         log_channel = guild.get_channel(data['target_log_channel'])
         if log_channel:
             card_embed = discord.Embed(
@@ -208,8 +233,89 @@ class TicketModal(discord.ui.Modal):
         await interaction.followup.send(f"تم فتح تذكرتك بنجاح: {channel.mention}", ephemeral=True)
 
 
+class CloseReasonModal(discord.ui.Modal):
+    def __init__(self, ticket_id: str):
+        self.ticket_id = ticket_id
+        super().__init__(title="إغلاق التذكرة ومراجعة الحل")
+
+        self.reason = discord.ui.TextInput(
+            label="سبب الإغلاق / ملخص الحل",
+            style=discord.TextStyle.paragraph,
+            placeholder="اكتب النتيجة أو سبب إغلاق التذكرة هنا...",
+            required=True
+        )
+        self.add_item(self.reason)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+
+        if self.ticket_id not in active_tickets:
+            return await interaction.followup.send("عذراً، هذه التذكرة غير موجودة في الذاكرة.", ephemeral=True)
+
+        tdata = active_tickets[self.ticket_id]
+        guild = interaction.guild
+        closed_time = datetime.now()
+
+        # إرسال سجل التذكرة الشامل إلى روم اللوج النهائي
+        ticket_log_chan = guild.get_channel(TICKET_LOG_CHANNEL_ID)
+        if ticket_log_chan:
+            log_embed = discord.Embed(
+                title="📜 سجل التذكرة (Ticket Log)",
+                color=0xe74c3c,
+                timestamp=closed_time
+            )
+            log_embed.add_field(name="👤 صاحب التذكرة", value=f"<@{tdata['user_id']}>", inline=True)
+            log_embed.add_field(name="📂 نوع المشكلة", value=tdata['type_name'], inline=True)
+            log_embed.add_field(name="🎫 رقم التذكرة", value=f"`{self.ticket_id}`", inline=True)
+
+            log_embed.add_field(name="📋 البيانات المدخلة من اللاعب", value=tdata['form_details'], inline=False)
+
+            claimed_user_str = f"<@{tdata['claimed_by']}>" if tdata['claimed_by'] else "لم يتم الاستلام"
+            log_embed.add_field(name="🛡️ الإداري المستلم", value=claimed_user_str, inline=True)
+
+            if tdata['transferred_to']:
+                log_embed.add_field(name="🔄 حالة التحويل", value=f"تم تحويلها إلى <@{tdata['transferred_to']}>", inline=True)
+
+            # تسجيل الأوقات
+            created_str = tdata['created_at'].strftime("%Y-%m-%d %H:%M:%S")
+            claimed_str = tdata['claimed_at'].strftime("%Y-%m-%d %H:%M:%S") if tdata['claimed_at'] else "N/A"
+            transferred_str = tdata['transferred_at'].strftime("%Y-%m-%d %H:%M:%S") if tdata['transferred_at'] else "لم تُحوّل"
+            closed_str = closed_time.strftime("%Y-%m-%d %H:%M:%S")
+
+            times_field = (
+                f"• **تاريخ الإنشاء:** `{created_str}`\n"
+                f"• **تاريخ الاستلام:** `{claimed_str}`\n"
+                f"• **تاريخ التحويل:** `{transferred_str}`\n"
+                f"• **تاريخ الإغلاق:** `{closed_str}`"
+            )
+            log_embed.add_field(name="⏱️ التواريخ والأوقات", value=times_field, inline=False)
+
+            log_embed.add_field(name="📝 سبب الإغلاق / ملخص الحل", value=self.reason.value, inline=False)
+            log_embed.set_footer(text=f"تم الإغلاق بواسطة: {interaction.user.display_name}")
+
+            await ticket_log_chan.send(embed=log_embed)
+
+        # حذف كارت الإدارة
+        log_chan = guild.get_channel(tdata['log_channel_id'])
+        if log_chan and tdata.get('card_msg_id'):
+            try:
+                msg = await log_chan.fetch_message(tdata['card_msg_id'])
+                await msg.delete()
+            except:
+                pass
+
+        ticket_channel = guild.get_channel(tdata['channel_id'])
+        del active_tickets[self.ticket_id]
+
+        if ticket_channel:
+            try:
+                await ticket_channel.delete()
+            except:
+                pass
+
+
 # ---------------------------------------------------------
-# إنشاء أزرار التحكم لكروت الإدارة
+# إنشاء وتنسيق أزرار التحكم
 # ---------------------------------------------------------
 def create_ticket_control_view(ticket_id: str) -> discord.ui.View:
     view = discord.ui.View(timeout=None)
@@ -243,7 +349,7 @@ def create_ticket_control_view(ticket_id: str) -> discord.ui.View:
 
 
 # ---------------------------------------------------------
-# Callbacks الأزرار (استلام / تحويل / إغلاق)
+# Callbacks للأزرار والصلاحيات الحصرية
 # ---------------------------------------------------------
 def make_claim_callback(ticket_id):
     async def callback(interaction: discord.Interaction):
@@ -252,9 +358,11 @@ def make_claim_callback(ticket_id):
 
         tdata = active_tickets[ticket_id]
         if tdata['claimed_by'] is not None:
-            return await interaction.response.send_message("هذه التذكرة مستلمة بالفعل من إداري آخر!", ephemeral=True)
+            return await interaction.response.send_message("❌ هذه التذكرة مستلمة بالفعل من قبل إداري آخر!", ephemeral=True)
 
         tdata['claimed_by'] = interaction.user.id
+        tdata['claimed_at'] = datetime.now()
+
         await interaction.response.send_message(f"تم استلام التذكرة #{ticket_id} بنجاح!", ephemeral=True)
 
         # تحديث كارت الإدارة
@@ -268,7 +376,6 @@ def make_claim_callback(ticket_id):
             except:
                 pass
 
-        # تنبيه داخل روم التذكرة
         ticket_channel = interaction.guild.get_channel(tdata['channel_id'])
         if ticket_channel:
             embed = discord.Embed(
@@ -287,38 +394,44 @@ def make_transfer_callback(ticket_id):
 
         tdata = active_tickets[ticket_id]
         user_roles = [r.id for r in interaction.user.roles]
-
         is_exempt = any(rid in EXEMPT_ROLES for rid in user_roles)
-        is_claimer = (tdata['claimed_by'] == interaction.user.id)
 
+        # 1. إجبار الاستلام أولاً
+        if tdata['claimed_by'] is None and not is_exempt:
+            return await interaction.response.send_message("❌ لا يمكنك تحويل التذكرة حتى يتم استلامها أولاً!", ephemeral=True)
+
+        # 2. حصرية التحويل للمستلم الحالي فقط
+        is_claimer = (tdata['claimed_by'] == interaction.user.id)
         if not (is_claimer or is_exempt):
-            return await interaction.response.send_message("لا تملك صلاحية تحويل هذه التذكرة لأنك لست الإداري المستلم لها!", ephemeral=True)
+            return await interaction.response.send_message("❌ لا تملك صلاحية تحويل هذه التذكرة لأنك لست الإداري المستلم لها حالياً!", ephemeral=True)
 
         options = []
         guild = interaction.guild
         for member in guild.members:
-            if any(r.id in ALL_ADMIN_ROLES for r in member.roles) and not member.bot:
+            if any(r.id in ALL_ADMIN_ROLES for r in member.roles) and not member.bot and member.id != interaction.user.id:
                 options.append(discord.SelectOption(label=member.display_name, value=str(member.id)))
 
         if not options:
-            return await interaction.response.send_message("لم يتم العثور على إداريين متاحيين للتحويل.", ephemeral=True)
+            return await interaction.response.send_message("لم يتم العثور على إداريين آخرين متاحين للتحويل.", ephemeral=True)
 
         select = discord.ui.Select(placeholder="اختر الإداري المراد تحويل التذكرة إليه", options=options[:25])
 
         async def select_callback(select_interaction: discord.Interaction):
             new_admin_id = int(select.values[0])
+            
+            # انتقال ملكية التذكرة فوراً للإداري الجديد
             tdata['claimed_by'] = new_admin_id
+            tdata['transferred_to'] = new_admin_id
+            tdata['transferred_at'] = datetime.now()
 
-            await select_interaction.response.send_message(f"تم تحويل التذكرة إلى <@{new_admin_id}> بنجاح!", ephemeral=True)
+            await select_interaction.response.send_message(f"تم تحويل التذكرة ونقل ملكيتها إلى <@{new_admin_id}> بنجاح!", ephemeral=True)
 
-            # تحديث كارت الإدارة
             log_chan = guild.get_channel(tdata['log_channel_id'])
             if log_chan and tdata.get('card_msg_id'):
                 try:
                     card_msg = await log_chan.fetch_message(tdata['card_msg_id'])
                     card_embed = card_msg.embeds[0]
-                    card_embed.set_field_at(2, name="📌 الحالة", value=f"مستلمة بواسطة <@{new_admin_id}>", inline=True)
-                    # إعادة ضبط الـ view وتصفير خيار القائمة المنسدلة
+                    card_embed.set_field_at(2, name="📌 الحالة", value=f"مستلمة بواسطة <@{new_admin_id}> (تم التحويل)", inline=True)
                     await card_msg.edit(embed=card_embed, view=create_ticket_control_view(ticket_id))
                 except:
                     pass
@@ -347,38 +460,26 @@ def make_close_callback(ticket_id):
 
         tdata = active_tickets[ticket_id]
         user_roles = [r.id for r in interaction.user.roles]
-
         is_exempt = any(rid in EXEMPT_ROLES for rid in user_roles)
+
+        # 1. إجبار الاستلام أولاً
+        if tdata['claimed_by'] is None and not is_exempt:
+            return await interaction.response.send_message("❌ لا يمكنك إغلاق التذكرة حتى يتم استلامها أولاً!", ephemeral=True)
+
+        # 2. حصرية الإغلاق للمستلم الحالي فقط
         is_claimer = (tdata['claimed_by'] == interaction.user.id)
-
         if not (is_claimer or is_exempt):
-            return await interaction.response.send_message("لا تملك صلاحية إغلاق هذه التذكرة لأنك لست الإداري المستلم!", ephemeral=True)
+            return await interaction.response.send_message("❌ لا تملك صلاحية إغلاق هذه التذكرة لأنك لست الإداري المستلم لها حالياً!", ephemeral=True)
 
-        await interaction.response.send_message("جاري إغلاق وحذف روم التذكرة...", ephemeral=True)
+        # فتح Modal سبب الإغلاق
+        modal = CloseReasonModal(ticket_id)
+        await interaction.response.send_modal(modal)
 
-        # حذف كارت التذكرة من قناة الإدارة
-        log_chan = interaction.guild.get_channel(tdata['log_channel_id'])
-        if log_chan and tdata.get('card_msg_id'):
-            try:
-                msg = await log_chan.fetch_message(tdata['card_msg_id'])
-                await msg.delete()
-            except:
-                pass
-
-        ticket_channel = interaction.guild.get_channel(tdata['channel_id'])
-
-        del active_tickets[ticket_id]
-
-        if ticket_channel:
-            try:
-                await ticket_channel.delete()
-            except:
-                pass
     return callback
 
 
 # ---------------------------------------------------------
-# قائمة اختيار التذاكر الرئيسية
+# القائمة الرئيسية لاختيار التذاكر
 # ---------------------------------------------------------
 class TicketSelect(discord.ui.Select):
     def __init__(self):
@@ -386,7 +487,7 @@ class TicketSelect(discord.ui.Select):
             discord.SelectOption(label="شكوى ضد لاعب", value="ticket_player", emoji="📗", description="لتقديم البلاغات ضد اللاعبين والاستفسار عن العقوبات"),
             discord.SelectOption(label="شكوى ضد قائد فصيل", value="ticket_faction", emoji="📘", description="لتقديم الشكاوى ضد قادة الفصائل وتجاوزاتهم"),
             discord.SelectOption(label="شكوى ضد إداري", value="ticket_staff", emoji="📕", description="للإبلاغ عن تجاوز أو سوء استخدام للسلطة للإدارة"),
-            discord.SelectOption(label="الدعم الفني", value="ticket_support", emoji="🛠️", description="للمساعدة العامة وحل المشاكل التقنية"),
+            discord.SelectOption(label="الدعم الفني", value="ticket_support", emoji="🛠️", description="لالمساعدة العامة وحل المشاكل التقنية"),
             discord.SelectOption(label="المتجر", value="ticket_store", emoji="🛍️"),
             discord.SelectOption(label="قواعد التذاكر", value="ticket_rules", emoji="📜", description="لإظهار قوانين وشروط التذاكر")
         ]
@@ -395,7 +496,7 @@ class TicketSelect(discord.ui.Select):
     async def callback(self, interaction: discord.Interaction):
         key = self.values[0]
 
-        # اعادة تعيين الـ View لتصفير الخيار المختار
+        # إعادة تصفير القائمة المنسدلة
         await interaction.message.edit(view=TicketView())
 
         if key == "ticket_rules":
@@ -412,7 +513,6 @@ class TicketSelect(discord.ui.Select):
             )
             return await interaction.response.send_message(rules_text, ephemeral=True)
 
-        # فتح النافذة المنبثقة (Modal) لإدخال البيانات
         modal = TicketModal(key)
         await interaction.response.send_modal(modal)
 
@@ -424,7 +524,7 @@ class TicketView(discord.ui.View):
 
 
 # ---------------------------------------------------------
-# الأحداث وأمر التحضير الرئيسي
+# الأحداث وأمر التحضير
 # ---------------------------------------------------------
 @bot.event
 async def on_ready():
@@ -435,7 +535,6 @@ async def on_ready():
 @bot.command(name="setup")
 @commands.has_permissions(administrator=True)
 async def setup(ctx):
-    """تحضير لوحة التذاكر الرئيسية لللاعبين"""
     embed = discord.Embed(
         title="قسم التذاكر والدعم الفني",
         description="مرحباً بك في قسم التذاكر والدعم الفني. اختر الموضوع المناسب من القائمة أدناه لنساعدك في أقرب وقت",
