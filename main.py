@@ -1,5 +1,5 @@
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 from discord.ui import View, Button, Select, Modal, TextInput
 import json
 import os
@@ -521,7 +521,6 @@ class CloseReasonModal(Modal, title="📝 إغلاق التذكرة وشرح ا�
 # ==========================================
 # 6. الـ Tasks لتحديث الوقت بانتظام
 # ==========================================
-from discord.ext import tasks
 
 @tasks.loop(minutes=1)
 async def update_ticket_cards():
@@ -598,5 +597,5 @@ async def setup_tickets_panel(ctx):
     )
     await ctx.send(embed=embed, view=TicketOpenView())
 
-# تشغيل البوت
-# bot.run("YOUR_BOT_TOKEN")
+# تشغيل البوت باستخدام متغير البيئة في Railway
+bot.run(os.getenv("DISCORD_TOKEN"))
